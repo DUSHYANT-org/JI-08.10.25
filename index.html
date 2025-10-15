@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Mobile Pedometer</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>Pedometer + Real-Time Weather</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -42,113 +42,133 @@
 <body>
   <div class="container">
     <h1>🚶 Pedometer</h1>
-
     <div class="info">Steps: <span id="steps">0</span></div>
-    <div class="info">Distance: <span id="distance">0.00</span> meters</div>
-
+    <div class="info">Distance: <span id="distance">0.00</span> m</div>
     <div class="info">Location: <span id="location">Loading...</span></div>
     <div class="info">Weather: <span id="weather">Loading...</span></div>
-
-    <footer>Made with 💻 JS Web APIs</footer>
+    <footer>Using JS Web APIs</footer>
   </div>
 
   <script>
-    // === STEP COUNTING ===
+    // --- Step Counting ---
     let stepCount = 0;
     let lastAcc = { x: null, y: null, z: null };
-    let stepThreshold = 12; // adjust if needed
+    const stepThreshold = 12;
 
-    window.addEventListener('devicemotion', (event) => {
-      const acc = event.accelerationIncludingGravity;
-      if (!acc.x || !acc.y || !acc.z) return;
-
-      let delta =
-        Math.abs(acc.x - lastAcc.x) +
-        Math.abs(acc.y - lastAcc.y) +
-        Math.abs(acc.z - lastAcc.z);
-
-      if (delta > stepThreshold) {
-        stepCount++;
-        document.getElementById('steps').textContent = stepCount;
-        document.getElementById('distance').textContent = (stepCount * 0.762).toFixed(2); // Avg step length in meters
+    window.addEventListener('devicemotion', (ev) => {
+      const acc = ev.accelerationIncludingGravity;
+      if (acc.x === null || acc.y === null || acc.z === null) {
+        // no data
+        return;
       }
-
+      if (lastAcc.x !== null) {
+        const delta = Math.abs(acc.x - lastAcc.x)
+                    + Math.abs(acc.y - lastAcc.y)
+                    + Math.abs(acc.z - lastAcc.z);
+        if (delta > stepThreshold) {
+          stepCount++;
+          document.getElementById('steps').textContent = stepCount;
+          document.getElementById('distance').textContent = (stepCount * 0.762).toFixed(2);
+        }
+      }
       lastAcc = { x: acc.x, y: acc.y, z: acc.z };
     });
 
-    // === GEOLOCATION & WEATHER ===
+    // --- Location & Weather ---
     const locationSpan = document.getElementById('location');
     const weatherSpan = document.getElementById('weather');
-
     let currentCoords = { lat: null, lon: null };
-    const apiKey = 'YOUR_API_KEY_HERE'; // <-- Replace with your OpenWeatherMap API key
+    const apiKey = 'YOUR_API_KEY_HERE';  // 👈 Replace with your key
 
     function fetchWeather(lat, lon) {
       const url = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&units=metric&appid=${apiKey}`;
-
+      console.log('→ fetchWeather: requesting URL:', url);
       fetch(url)
-        .then(res => res.json())
+        .then(res => {
+          console.log('→ fetchWeather: HTTP status:', res.status);
+          return res.json();
+        })
         .then(data => {
-          const temp = data.main.temp;
-          const desc = data.weather[0].description;
-          weatherSpan.textContent = `${temp}°C, ${desc}`;
+          console.log('→ fetchWeather: JSON data:', data);
+          if (data && data.main && data.weather && Array.isArray(data.weather)) {
+            const temp = data.main.temp;
+            const desc = data.weather[0].description;
+            weatherSpan.textContent = `${temp}°C, ${desc}`;
+          } else {
+            console.warn('→ fetchWeather: unexpected JSON structure', data);
+            weatherSpan.textContent = 'Weather data invalid';
+          }
         })
         .catch(err => {
-          weatherSpan.textContent = 'Weather data unavailable';
+          console.error('→ fetchWeather: error', err);
+          weatherSpan.textContent = 'Weather fetch failed';
         });
     }
 
     function updateLocation(lat, lon) {
       currentCoords = { lat, lon };
+      console.log('→ updateLocation:', lat, lon);
       locationSpan.textContent = `${lat.toFixed(4)}, ${lon.toFixed(4)}`;
-      fetchWeather(lat, lon); // Immediate weather fetch on location change
+      fetchWeather(lat, lon);
     }
 
     function startGeolocation() {
       if (!navigator.geolocation) {
+        console.error('Geolocation not supported');
         locationSpan.textContent = 'Geolocation not supported';
+        weatherSpan.textContent = 'Weather unavailable';
         return;
       }
 
       navigator.geolocation.watchPosition(
-        (position) => {
-          const { latitude, longitude } = position.coords;
+        (pos) => {
+          console.log('→ geolocation success callback:', pos);
+          const { latitude, longitude } = pos.coords;
           updateLocation(latitude, longitude);
         },
-        (error) => {
-          locationSpan.textContent = 'Location unavailable';
+        (err) => {
+          console.error('→ geolocation error callback:', err);
+          // err.code, err.message
+          let msg = 'Location error';
+          if (err.code === 1) msg = 'Permission denied';
+          else if (err.code === 2) msg = 'Position unavailable';
+          else if (err.code === 3) msg = 'Timeout';
+          locationSpan.textContent = msg;
           weatherSpan.textContent = 'Weather unavailable';
         },
         {
           enableHighAccuracy: true,
-          maximumAge: 5000,
           timeout: 10000,
+          maximumAge: 5000
         }
       );
     }
 
-    // === Periodic Weather Update ===
-    setInterval(() => {
-      if (currentCoords.lat && currentCoords.lon) {
-        fetchWeather(currentCoords.lat, currentCoords.lon);
-      }
-    }, 10 * 60 * 1000); // Every 10 minutes
-
-    // === Request motion access on iOS ===
     window.addEventListener('load', () => {
+      // Request motion permission on iOS (13+)
       if (typeof DeviceMotionEvent !== 'undefined' &&
           typeof DeviceMotionEvent.requestPermission === 'function') {
         DeviceMotionEvent.requestPermission()
           .then(response => {
-            if (response === 'granted') {
-              console.log('Motion access granted');
-            }
+            console.log('DeviceMotion permission:', response);
           })
-          .catch(console.error);
+          .catch(err => {
+            console.warn('DeviceMotion requestPermission error:', err);
+          });
       }
-
       startGeolocation();
     });
+
+    // Periodic weather updates
+    setInterval(() => {
+      if (currentCoords.lat !== null && currentCoords.lon !== null) {
+        console.log('→ periodic weather refresh');
+        fetchWeather(currentCoords.lat, currentCoords.lon);
+      } else {
+        console.log('→ periodic weather skip (no coords yet)');
+      }
+    }, 10 * 60 * 1000);
+
   </script>
 </body>
 </html>
